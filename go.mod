@@ -1,4 +1,4 @@
-module guthub.com/geveit/gowt
+module github.com/geveit/gowt
 
 go 1.21.3
 

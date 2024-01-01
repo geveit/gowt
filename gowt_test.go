@@ -8,20 +8,13 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"net/url"
 	"testing"
 )
 
 // Mock HttpClient
 type mockHttpClient struct {
-	postFormResponse *http.Response
-	postFormError    error
-	getResponse      *http.Response
-	getError         error
-}
-
-func (mock *mockHttpClient) PostForm(url string, data url.Values) (resp *http.Response, err error) {
-	return mock.postFormResponse, mock.postFormError
+	getResponse *http.Response
+	getError    error
 }
 
 func (mock *mockHttpClient) Get(url string) (resp *http.Response, err error) {
@@ -83,138 +76,6 @@ func assertCorrectError(t *testing.T, expectedError error, err error) {
 		} else if expectedError != nil && err.Error() != expectedError.Error() {
 			t.Errorf("expected error %v, got %v", expectedError, err)
 		}
-	}
-}
-
-// Tests
-func TestFetchToken(t *testing.T) {
-	subtests := []struct {
-		name                 string
-		httpClient           httpClient
-		jsonReader           jsonReader
-		expectedToken        string
-		expectedRefreshToken string
-		expectedError        error
-	}{
-		{
-			name: "happy path returns correct tokens and no error",
-			httpClient: &mockHttpClient{
-				postFormResponse: &http.Response{
-					StatusCode: http.StatusOK,
-					Body: buildResponseBody(map[string]any{
-						"access_token":  "access_token",
-						"refresh_token": "refresh_token",
-					}),
-				},
-				postFormError: nil,
-			},
-			jsonReader: &mockJsonReader{
-				readResult: map[string]any{
-					"access_token":  "access_token",
-					"refresh_token": "refresh_token",
-				},
-				readError: nil,
-			},
-			expectedToken:        "access_token",
-			expectedRefreshToken: "refresh_token",
-			expectedError:        nil,
-		},
-		{
-			name: "post form returns error",
-			httpClient: &mockHttpClient{
-				postFormResponse: &http.Response{
-					StatusCode: http.StatusOK,
-					Body: buildResponseBody(map[string]any{
-						"error": "some error",
-					}),
-				},
-				postFormError: fmt.Errorf("error posting form"),
-			},
-			jsonReader: &mockJsonReader{
-				readResult: map[string]any{
-					"access_token":  "access_token",
-					"refresh_token": "refresh_token",
-				},
-				readError: nil,
-			},
-			expectedToken:        "",
-			expectedRefreshToken: "",
-			expectedError:        fmt.Errorf("error posting form"),
-		},
-		{
-			name: "invalid cretentials return error",
-			httpClient: &mockHttpClient{
-				postFormResponse: &http.Response{
-					StatusCode: http.StatusUnauthorized,
-					Body:       buildResponseBody(map[string]any{"error": "invalid credentials"}),
-				},
-				postFormError: nil,
-			},
-			jsonReader: &mockJsonReader{
-				readResult: nil,
-				readError:  nil,
-			},
-			expectedToken:        "",
-			expectedRefreshToken: "",
-			expectedError:        fmt.Errorf("invalid credentials"),
-		},
-		{
-			name: "read json returns error",
-			httpClient: &mockHttpClient{
-				postFormResponse: &http.Response{
-					StatusCode: http.StatusOK,
-					Body: buildResponseBody(map[string]any{
-						"access_token":  "access_token",
-						"refresh_token": "refresh_token",
-					}),
-				},
-				postFormError: nil,
-			},
-			jsonReader: &mockJsonReader{
-				readResult: map[string]any{
-					"access_token":  "access_token",
-					"refresh_token": "refresh_token",
-				},
-				readError: fmt.Errorf("error reading json"),
-			},
-			expectedToken:        "",
-			expectedRefreshToken: "",
-			expectedError:        fmt.Errorf("error reading json"),
-		},
-	}
-
-	for _, tc := range subtests {
-		t.Run(tc.name, func(t *testing.T) {
-			gowt := &stdGowt{
-				config: &gowtConfig{
-					clientId:     "client_id",
-					clientSecret: "client_secret",
-					tokenUrl:     "token_url",
-				},
-				httpClient: tc.httpClient,
-				jsonReader: tc.jsonReader,
-			}
-
-			formData := url.Values{
-				"grant_type":    {"password"},
-				"client_secret": {gowt.config.clientSecret},
-				"client_id":     {gowt.config.clientId},
-				"username":      {"username"},
-				"password":      {"password"},
-			}
-
-			accessToken, refreshToken, err := gowt.fetchToken(formData)
-
-			if accessToken != tc.expectedToken {
-				t.Errorf("expected token %s, got %s", tc.expectedToken, accessToken)
-			}
-
-			if refreshToken != tc.expectedRefreshToken {
-				t.Errorf("expected refresh token %s, got %s", tc.expectedRefreshToken, refreshToken)
-			}
-
-			assertCorrectError(t, tc.expectedError, err)
-		})
 	}
 }
 

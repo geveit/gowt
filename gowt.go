@@ -5,7 +5,6 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 
@@ -13,8 +12,6 @@ import (
 )
 
 type Gowt interface {
-	FetchTokenWithPassword(username string, password string) (aToken string, rToken string, err error)
-	FetchTokenWithRefreshToken(refreshToken string) (aToken string, rToken string, err error)
 	Middleware(next http.Handler) http.Handler
 	fetchPublicKey(kid string) (*rsa.PublicKey, error)
 }
@@ -28,21 +25,15 @@ type stdGowt struct {
 }
 
 type gowtConfig struct {
-	clientId     string
-	clientSecret string
-	tokenUrl     string
-	certsUrl     string
-	aud          string
+	certsUrl string
+	aud      string
 }
 
 func NewGowt(cacher Cacher) Gowt {
 	return &stdGowt{
 		config: &gowtConfig{
-			clientId:     os.Getenv("GOWT_CLIENT_ID"),
-			clientSecret: os.Getenv("GOWT_CLIENT_SECRET"),
-			tokenUrl:     os.Getenv("GOWT_TOKEN_URL"),
-			certsUrl:     os.Getenv("GOWT_CERTS_URL"),
-			aud:          os.Getenv("GOWT_JWT_AUD"),
+			certsUrl: os.Getenv("GOWT_CERTS_URL"),
+			aud:      os.Getenv("GOWT_JWT_AUD"),
 		},
 		jsonReader: NewJsonReader(),
 		httpClient: NewHttpClient(),
@@ -77,36 +68,13 @@ func (g *stdGowt) Middleware(next http.Handler) http.Handler {
 				http.Error(w, "Invalid token", http.StatusUnauthorized)
 				return
 			}
-			ctx := context.WithValue(r.Context(), "userId", claims["sub"])
+			ctx := context.WithValue(r.Context(), "userID", claims["sub"])
 			next.ServeHTTP(w, r.WithContext(ctx))
 		} else {
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
 	})
-}
-
-func (g *stdGowt) FetchTokenWithRefreshToken(refreshToken string) (aToken string, rToken string, err error) {
-	formData := url.Values{
-		"grant_type":    {"refresh_token"},
-		"client_secret": {g.config.clientSecret},
-		"client_id":     {g.config.clientId},
-		"refresh_token": {refreshToken},
-	}
-
-	return g.fetchToken(formData)
-}
-
-func (g *stdGowt) FetchTokenWithPassword(username string, password string) (aToken string, rToken string, err error) {
-	formData := url.Values{
-		"grant_type":    {"password"},
-		"client_secret": {g.config.clientSecret},
-		"client_id":     {g.config.clientId},
-		"username":      {username},
-		"password":      {password},
-	}
-
-	return g.fetchToken(formData)
 }
 
 func (g *stdGowt) fetchPublicKey(kid string) (*rsa.PublicKey, error) {
@@ -170,27 +138,4 @@ func (g *stdGowt) fetchPublicKeyFromServer(kid string) (*rsa.PublicKey, error) {
 	publicKey := &rsa.PublicKey{N: n, E: int(e.Int64())}
 
 	return publicKey, nil
-}
-
-func (g *stdGowt) fetchToken(formData url.Values) (aToken string, rToken string, err error) {
-	res, err := g.httpClient.PostForm(g.config.tokenUrl, formData)
-	if err != nil {
-		return "", "", err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode == http.StatusUnauthorized {
-		return "", "", fmt.Errorf("invalid credentials")
-	}
-
-	resBody, err := g.jsonReader.Read(res.Body)
-	if err != nil {
-		return "", "", err
-	}
-
-	accessToken, _ := resBody["access_token"].(string)
-
-	refreshToken, _ := resBody["refresh_token"].(string)
-
-	return accessToken, refreshToken, nil
 }
